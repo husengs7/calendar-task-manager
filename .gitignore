@@ -9,3 +9,4 @@ config.json
 # Logs & temporary files
 *.log
 *.tmp
+skills.txt
