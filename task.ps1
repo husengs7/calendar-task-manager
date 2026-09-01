@@ -92,13 +92,11 @@ function Get-WorkCalendarEvents {
         return @()
     }
 
+    $rangeStart = $StartDate.Date
+    $rangeEnd = $StartDate.AddDays([Math]::Max(1, $Days)).Date
+
     $unfolded = [System.Text.RegularExpressions.Regex]::Replace($rawIcs, "\r?\n[ \t]", "")
     $eventMatches = [System.Text.RegularExpressions.Regex]::Matches($unfolded, "BEGIN:VEVENT([\s\S]*?)END:VEVENT")
-
-    $targetDates = @()
-    for ($i = 0; $i -lt $Days; $i++) {
-        $targetDates += $StartDate.AddDays($i).ToString("yyyyMMdd")
-    }
 
     $allEvents = @()
     $seenKeys = @{}
@@ -106,82 +104,99 @@ function Get-WorkCalendarEvents {
     foreach ($m in $eventMatches) {
         $block = $m.Groups[1].Value
 
-        $summary = "(No Title)"
-        if ($block -match "SUMMARY:(.*)") {
-            $summary = $matches[1].Trim() -replace "\\,", "," -replace "\\;", ";" -replace "\\n", " "
-        }
-
-        $dtstartRaw = ""
-        $isAllDay = $false
-        if ($block -match "DTSTART[^:]*:([0-9]{8}(T[0-9]{6}Z?)?)") {
-            $dtstartRaw = $matches[1]
-        }
-
-        $dtendRaw = ""
-        if ($block -match "DTEND[^:]*:([0-9]{8}(T[0-9]{6}Z?)?)") {
-            $dtendRaw = $matches[1]
-        }
-
         if ($block -match "STATUS:CANCELLED") {
             continue
         }
 
-        $datePart = if ($dtstartRaw.Length -ge 8) { $dtstartRaw.Substring(0, 8) } else { "" }
-        if ($targetDates -contains $datePart) {
-            $startTimeStr = ""
+        $summary = "(No Title)"
+        $summaryLine = ($block -split "`r?`n" | Where-Object { $_ -match "^SUMMARY(?:;[A-Z0-9=:/\-]+)?:" } | Select-Object -First 1)
+        if (-not [string]::IsNullOrWhiteSpace($summaryLine)) {
+            $summary = ($summaryLine -replace "^SUMMARY(?:;[A-Z0-9=:/\-]+)?:", "").Trim()
+            $summary = $summary -replace "\\,", "," -replace "\\;", ";" -replace "\\n", " " -replace "\\N", " "
+        }
+
+        $dtstartLine = ($block -split "`r?`n" | Where-Object { $_ -match "^DTSTART(?:;[A-Z0-9=:/\-]+)?:" } | Select-Object -First 1)
+        $dtendLine = ($block -split "`r?`n" | Where-Object { $_ -match "^DTEND(?:;[A-Z0-9=:/\-]+)?:" } | Select-Object -First 1)
+
+        $dtstartRaw = if ($dtstartLine) { ($dtstartLine -replace "^DTSTART(?:;[A-Z0-9=:/\-]+)?:", "").Trim() } else { "" }
+        $dtendRaw = if ($dtendLine) { ($dtendLine -replace "^DTEND(?:;[A-Z0-9=:/\-]+)?:", "").Trim() } else { "" }
+
+        if ([string]::IsNullOrWhiteSpace($dtstartRaw)) {
+            continue
+        }
+
+        $datePart = ""
+        if ($dtstartRaw -match "^(\d{8})") {
+            $datePart = $matches[1]
+        }
+
+        if ([string]::IsNullOrWhiteSpace($datePart)) {
+            continue
+        }
+
+        $eventDt = [datetime]::ParseExact($datePart, "yyyyMMdd", $null)
+        if ($eventDt -lt $rangeStart -or $eventDt -ge $rangeEnd) {
+            continue
+        }
+
+        $isAllDay = $dtstartRaw -match "^\d{8}$" -or $dtstartRaw -match "^\d{8};VALUE=DATE$"
+        $startTimeStr = ""
+        $endTimeStr = ""
+        $isoStart = ""
+        $isoEnd = ""
+
+        $y = $datePart.Substring(0, 4)
+        $M = $datePart.Substring(4, 2)
+        $d = $datePart.Substring(6, 2)
+
+        if ($isAllDay) {
+            $startTimeStr = "ALL DAY"
             $endTimeStr = ""
-            $isoStart = ""
-            $isoEnd = ""
-
-            $y = $datePart.Substring(0, 4)
-            $M = $datePart.Substring(4, 2)
-            $d = $datePart.Substring(6, 2)
-
-            if ($dtstartRaw.Length -eq 8) {
-                $isAllDay = $true
-                $startTimeStr = "ALL DAY"
-                $endTimeStr = ""
-                $isoStart = "$($y)-$($M)-$($d)T00:00:00+09:00"
-                $isoEnd = "$($y)-$($M)-$($d)T23:59:59+09:00"
-            }
-            else {
-                $timePart = $dtstartRaw.Substring(9, 4)
-                $hh = $timePart.Substring(0, 2)
-                $mm = $timePart.Substring(2, 2)
+            $isoStart = "$($y)-$($M)-$($d)T00:00:00+09:00"
+            $isoEnd = "$($y)-$($M)-$($d)T23:59:59+09:00"
+        }
+        else {
+            $rawTime = $dtstartRaw -replace '^\d{8}T', ''
+            $rawTime = $rawTime -replace 'Z$', ''
+            if ($rawTime.Length -ge 4) {
+                $hh = $rawTime.Substring(0, 2)
+                $mm = $rawTime.Substring(2, 2)
                 $startTimeStr = "$($hh):$($mm)"
                 $isoStart = "$($y)-$($M)-$($d)T$($hh):$($mm):00+09:00"
+            }
 
-                if ($dtendRaw.Length -ge 13) {
-                    $endTimePart = $dtendRaw.Substring(9, 4)
+            if (-not [string]::IsNullOrWhiteSpace($dtendRaw) -and $dtendRaw -match '^\d{8}(T\d{4,6}Z?)?$') {
+                $endDatePart = $dtendRaw.Substring(0, 8)
+                $endTimePart = if ($dtendRaw.Length -gt 8) { $dtendRaw.Substring(9) } else { "" }
+                $endTimePart = $endTimePart -replace 'Z$', ''
+                if ($endTimePart.Length -ge 4) {
                     $ehh = $endTimePart.Substring(0, 2)
                     $emm = $endTimePart.Substring(2, 2)
-                    $ey = $dtendRaw.Substring(0, 4)
-                    $eM = $dtendRaw.Substring(4, 2)
-                    $ed = $dtendRaw.Substring(6, 2)
                     $endTimeStr = "$($ehh):$($emm)"
-                    $isoEnd = "$($ey)-$($eM)-$($ed)T$($ehh):$($emm):00+09:00"
-                }
-                else {
-                    $endTimeStr = ""
-                    $isoEnd = "$($y)-$($M)-$($d)T$($hh):$($mm):00+09:00"
+                    $isoEnd = "$($endDatePart.Substring(0, 4))-$($endDatePart.Substring(4, 2))-$($endDatePart.Substring(6, 2))T$($ehh):$($emm):00+09:00"
                 }
             }
 
-            $key = "$summary|$dtstartRaw|$dtendRaw"
-            if ($seenKeys.ContainsKey($key)) { continue }
-            $seenKeys[$key] = $true
-
-            $allEvents += [PSCustomObject]@{
-                Summary = $summary
-                IsAllDay = $isAllDay
-                StartTimeStr = $startTimeStr
-                EndTimeStr = $endTimeStr
-                StartRaw = $dtstartRaw
-                EndRaw = $dtendRaw
-                IsoStart = $isoStart
-                IsoEnd = $isoEnd
-                DateStr = "$($y)/$($M)/$($d)"
+            if ([string]::IsNullOrWhiteSpace($isoEnd)) {
+                $endTimeStr = ""
+                $isoEnd = $isoStart
             }
+        }
+
+        $key = "$summary|$dtstartRaw|$dtendRaw"
+        if ($seenKeys.ContainsKey($key)) { continue }
+        $seenKeys[$key] = $true
+
+        $allEvents += [PSCustomObject]@{
+            Summary = $summary
+            IsAllDay = $isAllDay
+            StartTimeStr = $startTimeStr
+            EndTimeStr = $endTimeStr
+            StartRaw = $dtstartRaw
+            EndRaw = $dtendRaw
+            IsoStart = $isoStart
+            IsoEnd = $isoEnd
+            DateStr = "$($y)/$($M)/$($d)"
         }
     }
 
@@ -233,45 +248,124 @@ function Get-DisplayDateText {
     return $DateValue.ToString("yyyy/MM/dd") + " (" + $dayName + ")"
 }
 
+function Get-ThisMonthLongEvents {
+    $now = Get-Date
+    $monthStart = [datetime]::ParseExact($now.ToString("yyyy-MM-01"), "yyyy-MM-dd", $null)
+    $monthEnd = $monthStart.AddMonths(1).AddDays(-1)
+    $daysInMonth = [int](($monthEnd - $monthStart).TotalDays) + 1
+
+    $events = @(Get-WorkCalendarEvents -StartDate $monthStart -Days $daysInMonth)
+    $filtered = @()
+
+    foreach ($event in $events) {
+        $durationHours = 0
+        $include = $false
+
+        try {
+            $startDt = [DateTimeOffset]::Parse($event.IsoStart)
+            $endDt = [DateTimeOffset]::Parse($event.IsoEnd)
+            $durationHours = ($endDt - $startDt).TotalHours
+            if ($event.IsAllDay -and $durationHours -le 0) {
+                $durationHours = 24
+            }
+            if ($durationHours -ge 3) {
+                $include = $true
+            }
+        }
+        catch {
+            $include = $false
+        }
+
+        if ($include) {
+            $filtered += [PSCustomObject]@{
+                Summary = $event.Summary
+                DateStr = $event.DateStr
+                Start = $event.IsoStart
+                End = $event.IsoEnd
+                DurationHours = [math]::Round($durationHours, 1)
+            }
+        }
+    }
+
+    return @($filtered | Sort-Object Start)
+}
+
 function New-InitPrompt {
-  $lines = @(
-    '【役割】',
-    'あなたは親切で優秀な「タスク管理専属アシスタントAI」です。',
-    'ユーザーがコマンドの仕様や使い方を知らなくても、対話を通じてローカルスクリプト（.\task.ps1）を簡単に操作できるようにサポートしてください。',
-    '',
-    '【基本動作ルール】',
-    '1. 最初に必ず挨拶をし、「本日実行できること」を分かりやすくメニュー形式（選択肢）で案内してください。',
-    '2. ユーザーが「日報出したい」「これ終わった」「予定同期して」など雑な指示を出してきたら、意図を汲み取って実行すべき PowerShell コマンドを生成してください。',
-    '3. コマンドを出力する際は、ユーザーがワンクリックでコピーしてPowerShellに貼り付けられるよう、必ず ```powershell ... ``` のコードブロックの中にまとめて出力してください。',
-    '4. 【最重要ルール】コマンドの実行ファイル名は、必ず「.\task.ps1」から始めてください。「task」単体や「task.ps1」だけで出力することは厳禁です。',
-    '',
-    '【利用可能なコマンド仕様一覧】',
-    '・タスク追加: .\task.ps1 add "<タイトル>" [優先度: high/med/low] [見積時間(分)] (優先度デフォルト: med, 時間デフォルト: 30)',
-    '・タスク完了: .\task.ps1 done <ID>',
-    '・タスク削除: .\task.ps1 del <ID>',
-    '・タスク一覧表示: .\task.ps1 list',
-    '・カレンダー表示: .\task.ps1 cal',
-    '・カレンダー同期: .\task.ps1 sync',
-    '・日報用プロンプト作成: .\task.ps1 report',
-    '・初期化プロンプト作成: .\task.ps1 start',
-    '',
-    '【出力イメージ】',
-    '初回応答時:',
-    '「こんにちは！今日のタスク管理・業務サポートを担当します。本日は何をしますか？',
-    ' 1. タスクの確認・追加・完了処理',
-    ' 2. Googleカレンダーの確認・同期 (.\task.ps1 sync / .\task.ps1 cal)',
-    ' 3. 本日の日報作成 (.\task.ps1 report)',
-    '指示を直接入力するか、番号で教えてくださいね！」',
-    '',
-    'ユーザーが「日報出したい」と言った場合:',
-    '「了解しました！日報作成用のデータを抽出するコマンドを用意しました。こちらをPowerShellに貼り付けて実行してください！」',
-    '```powershell',
-    '.\task.ps1 report',
-    '```',
-    '',
-    '【スタート指示】',
-    'このルールを理解したら、まずはユーザーに対して「本日何をお手伝いするか」の選択肢メニューを提示して話しかけてください。'
-)
+    $skillsText = Get-SkillsText
+    if ([string]::IsNullOrWhiteSpace($skillsText)) {
+        $skillsText = '（空）'
+    }
+
+    $thisMonthEvents = @(Get-ThisMonthLongEvents)
+    $eventLines = @()
+    if ($thisMonthEvents.Count -eq 0) {
+        $eventLines += '- 今月の3時間以上の予定はありません。'
+    }
+    else {
+        foreach ($event in $thisMonthEvents) {
+            $eventLines += ("- {0} / {1} - {2} / 所要時間: {3}時間" -f $event.DateStr, $event.Summary, $event.Start, $event.DurationHours)
+        }
+    }
+
+    $lines = @(
+        '【役割】',
+        'あなたは親切で優秀な「タスク管理専属アシスタントAI」です。',
+        'ユーザーがコマンドの仕様や使い方を知らなくても、対話を通じてローカルスクリプト（.\task.ps1）を簡単に操作できるようにサポートしてください。',
+        '今回の業務は Findy の DevRel インターン生として、開発者コミュニティ・技術広報・イベント運営・技術コンテンツ制作・社外連携を中心に行う。',
+        '',
+        '【基本動作ルール】',
+        '1. 最初に必ず挨拶をし、「本日実行できること」を分かりやすくメニュー形式（選択肢）で案内してください。',
+        '2. ユーザーが「日報出したい」「これ終わった」「予定同期して」など雑な指示を出してきたら、意図を汲み取って実行すべき PowerShell コマンドを生成してください。',
+        '3. コマンドを出力する際は、ユーザーがワンクリックでコピーしてPowerShellに貼り付けられるよう、必ず ```powershell ... ``` のコードブロックの中にまとめて出力してください。',
+        '4. 【最重要ルール】コマンドの実行ファイル名は、必ず「.\task.ps1」から始めてください。「task」単体や「task.ps1」だけで出力することは厳禁です。',
+        '5. その月の 3時間以上の予定を必ず確認し、各イベントが業務にとって重要かどうか、準備が必要かどうかを判定してください。',
+        '6. ユーザーの業務内容と優先度を踏まえて、外部影響・締切・コミュニティ価値・準備負荷を考慮し、必要なら「準備は大丈夫？」とリマインドしてください。',
+        '',
+        '【利用可能なコマンド仕様一覧】',
+        '・タスク追加: .\task.ps1 add "<タイトル>" [優先度: high/med/low] [見積時間(分)] (優先度デフォルト: med, 時間デフォルト: 30)',
+        '・タスク完了: .\task.ps1 done <ID>',
+        '・タスク削除: .\task.ps1 del <ID>',
+        '・タスク一覧表示: .\task.ps1 list',
+        '・カレンダー表示: .\task.ps1 cal',
+        '・カレンダー同期: .\task.ps1 sync',
+        '・日報用プロンプト作成: .\task.ps1 report',
+        '・初期化プロンプト作成: .\task.ps1 start',
+        '',
+        '【現在の業務コンテキスト / skills.txt】',
+        $skillsText,
+        '',
+        '【今月の 3時間以上の予定】'
+    )
+
+    $lines += $eventLines
+
+    $lines += @(
+        '',
+        '【判定の観点】',
+        '・この予定が業務として重要かどうかを判断する',
+        '・重要な場合は、準備が不足していないかを確認する',
+        '・「準備は大丈夫？」と、必要なら短いリマインドを付ける',
+        '・必要に応じて、優先度が高い順に整理してユーザーへ伝える',
+        '',
+        '【出力イメージ】',
+        '初回応答時:',
+        '「こんにちは！今月の重要イベントとタスク管理をサポートします。本日は何をしますか？',
+        ' 1. タスクの確認・追加・完了処理',
+        ' 2. Googleカレンダーの確認・同期 (.\task.ps1 sync / .\task.ps1 cal)',
+        ' 3. 本日の日報作成 (.\task.ps1 report)',
+        ' 4. 今月の重要イベントの確認と準備チェック',
+        '指示を直接入力するか、番号で教えてくださいね！」',
+        '',
+        'ユーザーが「日報出したい」と言った場合:',
+        '「了解しました！日報作成用のデータを抽出するコマンドを用意しました。こちらをPowerShellに貼り付けて実行してください！」',
+        '```powershell',
+        '.\task.ps1 report',
+        '```',
+        '',
+        '【スタート指示】',
+        'このルールを理解したら、まずはユーザーに対して「本日何をお手伝いするか」の選択肢メニューを提示して話しかけてください。',
+        'そして今月の長時間予定を基に、業務上の優先度と準備状況を判断し、必要なら「準備は大丈夫？」とリマインドしてください。'
+    )
 
     return ($lines -join "`r`n")
 }
