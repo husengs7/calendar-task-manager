@@ -33,18 +33,48 @@ Windows 起動時に自動でカレンダーを同期したい場合、`sync_sta
 
 ## 💻 基本的な使い方
 
+このスクリプトは、AIを使わなくてもローカルで普通に使えるように作っています。通常は以下のコマンドを使います。
+
 ```powershell
-# 今日の予定とタスク一覧の確認
-powershell -ExecutionPolicy Bypass -File task.ps1 list
+# 1. 今日の予定とタスク一覧を表示
+.\task.ps1
 
-# カレンダーの同期（例: 今後30日分）
-powershell -ExecutionPolicy Bypass -File task.ps1 sync 30
+# 2. 今日の予定だけを表示
+.\task.ps1 cal
 
-# タスクの追加（タイトル 優先度 見積分）
-powershell -ExecutionPolicy Bypass -File task.ps1 add "資料作成" high 30
+# 3. タスクを追加（タイトル / 優先度 / 見積時間）
+.\task.ps1 add "資料作成" high 30
 
-# タスクの完了
-powershell -ExecutionPolicy Bypass -File task.ps1 done 1
+# 4. タスクを完了にする
+.\task.ps1 done 1
+
+# 5. タスクを削除する
+.\task.ps1 del 1
+
+# 6. 予定をGoogle Calendarへ同期（例: 30日分）
+.\task.ps1 sync 30
+
+# 7. タスク一覧を明示的に表示
+.\task.ps1 list
+```
+
+### 使い方の流れ
+- まずは `task.ps1` を実行して、今日の予定と未完了タスクを確認する
+- 追加したい作業は `add` で登録する
+- 終わった作業は `done` で完了にする
+- 予定の同期が必要なら `sync` を実行する
+
+### AI連携について
+- `start` は AI用の初期化プロンプトを作るための補助コマンドです
+- `report` は日報用のプロンプトを作成する補助コマンドです
+- これらは「AI脳筋連携」をするための支援機能であり、通常のタスク管理自体には依存しません
+
+```powershell
+# AI用の初期化プロンプトを作成（任意）
+.\task.ps1 start
+
+# 日報生成用プロンプトを作成（任意）
+.\task.ps1 report
 ```
 
 ---
