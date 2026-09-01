@@ -1,0 +1,11 @@
+# Secrets & Environment variables
+.env
+*.env.local
+
+# Actual task / runtime data
+tasks.json
+config.json
+
+# Logs & temporary files
+*.log
+*.tmp
