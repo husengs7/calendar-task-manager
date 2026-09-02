@@ -10,3 +10,4 @@ config.json
 *.log
 *.tmp
 skills.txt
+report_skills.txt

@@ -19,6 +19,7 @@ if ([string]::IsNullOrWhiteSpace($scriptDir)) {
 $envFile = Join-Path $scriptDir ".env"
 $tasksFile = Join-Path $scriptDir "tasks.json"
 $skillsFile = Join-Path $scriptDir "skills.txt"
+$reportSkillsFile = Join-Path $scriptDir "report_skills.txt"
 
 $envConfig = @{}
 if (Test-Path $envFile) {
@@ -58,6 +59,30 @@ function Get-SkillsText {
     catch {
         try {
             $content = Get-Content $skillsFile -Raw -Encoding Default
+        }
+        catch {
+            return ""
+        }
+    }
+
+    if ($null -eq $content) {
+        return ""
+    }
+
+    return $content.Trim()
+}
+
+function Get-ReportSkillsText {
+    if (-not (Test-Path $reportSkillsFile)) {
+        return ""
+    }
+
+    try {
+        $content = Get-Content $reportSkillsFile -Raw -Encoding UTF8
+    }
+    catch {
+        try {
+            $content = Get-Content $reportSkillsFile -Raw -Encoding Default
         }
         catch {
             return ""
@@ -395,9 +420,9 @@ function New-DailyReportPrompt {
 
     $todoTasks = @($tasks | Where-Object { $_.status -eq "TODO" })
     $calendarEvents = @(Get-WorkCalendarEvents -StartDate $Today -Days 1)
-    $skillsText = Get-SkillsText
-    if ([string]::IsNullOrWhiteSpace($skillsText)) {
-        $skillsText = "（空）"
+    $reportSkillsText = Get-ReportSkillsText
+    if ([string]::IsNullOrWhiteSpace($reportSkillsText)) {
+        $reportSkillsText = "（空）"
     }
 
     $doneLines = @()
@@ -454,8 +479,8 @@ function New-DailyReportPrompt {
     $promptLines += $todoLines
     $promptLines += @(
         '',
-        '[skills.txt の内容]',
-        $skillsText,
+        '[report_skills.txt の内容]',
+        $reportSkillsText,
         '',
         '【出力フォーマット】',
         ('【 ' + (Get-DisplayDateText -DateValue $Today) + ' 】'),
@@ -467,7 +492,7 @@ function New-DailyReportPrompt {
         ' - [残タスク・予定]',
         '',
         '■ 所感',
-        ' [ユーザーのメモとskillsのルールを元に作成した文章]',
+        ' [日報用スキルに従って、具体的かつ簡潔に整理した文章]',
         '',
         '※ Geminiへ貼る際は、最後に 『■ 本日のメモ: 〜』 を追加して送信してください。'
     )
