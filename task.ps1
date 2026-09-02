@@ -692,8 +692,23 @@ else {
     Write-Host "[Tasks / Todo List]" -ForegroundColor Cyan
     Write-Host "---------------------------------------------"
     $tasks = @(Get-Tasks)
+    $today = Get-Date
     $todoTasks = @($tasks | Where-Object { $_.status -eq "TODO" })
-    $doneTasks = @($tasks | Where-Object { $_.status -eq "DONE" })
+    $doneTasks = @(
+        $tasks |
+        Where-Object {
+            $_.status -eq "DONE" -and -not [string]::IsNullOrWhiteSpace($_.completedAt)
+        } |
+        ForEach-Object {
+            try {
+                $completedAtValue = [datetime]::Parse($_.completedAt)
+                if ($completedAtValue.Date -eq $today.Date) { $_ }
+            }
+            catch {
+                # 完了日時が不正なタスクは今日の完了対象から除外
+            }
+        }
+    )
 
     if ($todoTasks.Count -eq 0 -and $doneTasks.Count -eq 0) {
         Write-Host "  No tasks registered yet." -ForegroundColor DarkGray
