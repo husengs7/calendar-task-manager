@@ -668,6 +668,78 @@ elseif ($cmd -eq "del") {
     Save-Tasks $newTasks
     Write-Host "[-] Deleted task #$($id)." -ForegroundColor Yellow
 }
+elseif ($cmd -eq "now") {
+    $date = Get-Date
+    Write-Host ""
+    Write-Host ("[Current Time: {0}]" -f $date.ToString("yyyy/MM/dd HH:mm:ss dddd")) -ForegroundColor Cyan
+    Write-Host "[Today's Work Events ($($date.ToString('yyyy/MM/dd dddd')))]" -ForegroundColor Cyan
+    Write-Host "---------------------------------------------"
+    $events = Get-WorkCalendarEvents -StartDate $date -Days 1
+    if ($events.Count -eq 0) {
+        Write-Host "  No events scheduled for today." -ForegroundColor DarkGray
+    }
+    else {
+        foreach ($e in $events) {
+            if ($e.IsAllDay) {
+                Write-Host ("  [ALL DAY]      {0}" -f $e.Summary) -ForegroundColor Magenta
+            }
+            else {
+                Write-Host ("  [{0} - {1}]  {2}" -f $e.StartTimeStr, $e.EndTimeStr, $e.Summary) -ForegroundColor Yellow
+            }
+        }
+    }
+
+    Write-Host ""
+    Write-Host "[Tasks / Todo List]" -ForegroundColor Cyan
+    Write-Host "---------------------------------------------"
+    $tasks = @(Get-Tasks)
+    $today = Get-Date
+    $todoTasks = @($tasks | Where-Object { $_.status -eq "TODO" })
+    $doneTasks = @(
+        $tasks |
+        Where-Object {
+            $_.status -eq "DONE" -and -not [string]::IsNullOrWhiteSpace($_.completedAt)
+        } |
+        ForEach-Object {
+            try {
+                $completedAtValue = [datetime]::Parse($_.completedAt)
+                if ($completedAtValue.Date -eq $today.Date) { $_ }
+            }
+            catch {
+                # 完了日時が不正なタスクは今日の完了対象から除外
+            }
+        }
+    )
+
+    if ($todoTasks.Count -eq 0 -and $doneTasks.Count -eq 0) {
+        Write-Host "  No tasks registered yet." -ForegroundColor DarkGray
+        Write-Host "  Tip: Tell me in chat or run 'task add <title>' to add a task." -ForegroundColor Gray
+    }
+    else {
+        if ($todoTasks.Count -gt 0) {
+            Write-Host " [TODO]" -ForegroundColor White
+            foreach ($t in $todoTasks) {
+                $priorityValue = if ($null -ne $t.priority) { $t.priority.ToString().ToLower() } else { "med" }
+                $pBadge = switch ($priorityValue) {
+                    "high" { "[HIGH]" }
+                    "low"  { "[LOW] " }
+                    default { "[MED] " }
+                }
+                Write-Host ("   [ ] #{0,-2} {1} {2,-30} ({3}m)" -f $t.id, $pBadge, $t.title, $t.estMinutes) -ForegroundColor White
+            }
+        }
+
+        if ($doneTasks.Count -gt 0) {
+            Write-Host ""
+            Write-Host " [COMPLETED]" -ForegroundColor DarkGray
+            foreach ($t in ($doneTasks | Select-Object -Last 5)) {
+                Write-Host ("   [X] #{0,-2} {1}" -f $t.id, $t.title) -ForegroundColor DarkGray
+            }
+        }
+    }
+
+    Write-Host "============================================="
+}
 else {
     $date = Get-Date
     Write-Host ""
