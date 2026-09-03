@@ -45,16 +45,19 @@ Windows 起動時に自動でカレンダーを同期したい場合、`sync_sta
 # 3. タスクを追加（タイトル / 優先度 / 見積時間）
 .\task.ps1 add "資料作成" high 30
 
-# 4. タスクを完了にする
+# 4. 隠しタスクを追加（now / report には表示されない）
+.\task.ps1 add-hidden "個人的なメモ" low 15
+
+# 5. タスクを完了にする
 .\task.ps1 done 1
 
-# 5. タスクを削除する
+# 6. タスクを削除する
 .\task.ps1 del 1
 
-# 6. 予定をGoogle Calendarへ同期（例: 30日分）
+# 7. 予定をGoogle Calendarへ同期（例: 30日分）
 .\task.ps1 sync 30
 
-# 7. タスク一覧を明示的に表示
+# 8. タスク一覧を明示的に表示
 .\task.ps1 list
 ```
 

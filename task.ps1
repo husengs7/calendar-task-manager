@@ -263,6 +263,18 @@ function Save-Tasks($tasks) {
     [System.IO.File]::WriteAllText($tasksFile, $json, $utf8Bom)
 }
 
+function Test-HiddenTask {
+    param(
+        [object]$Task
+    )
+
+    if ($null -eq $Task.tags) {
+        return $false
+    }
+
+    return @($Task.tags) -contains "hidden"
+}
+
 function Get-DisplayDateText {
     param(
         [datetime]$DateValue = (Get-Date)
@@ -348,6 +360,7 @@ function New-InitPrompt {
         '',
         '【利用可能なコマンド仕様一覧】',
         '・タスク追加: .\task.ps1 add "<タイトル>" [優先度: high/med/low] [見積時間(分)] (優先度デフォルト: med, 時間デフォルト: 30)',
+            '・隠しタスク追加: .\task.ps1 add-hidden "<タイトル>" [優先度: high/med/low] [見積時間(分)] (now/reportには非表示)',
         '・タスク完了: .\task.ps1 done <ID>',
         '・タスク削除: .\task.ps1 del <ID>',
         '・タスク一覧表示: .\task.ps1 list',
@@ -418,19 +431,21 @@ function New-DailyReportPrompt {
         }
     }
 
-    $todoTasks = @($tasks | Where-Object { $_.status -eq "TODO" })
+    $visibleTasks = @($tasks | Where-Object { -not (Test-HiddenTask $_) })
+    $todoTasks = @($visibleTasks | Where-Object { $_.status -eq "TODO" })
     $calendarEvents = @(Get-WorkCalendarEvents -StartDate $Today -Days 1)
     $reportSkillsText = Get-ReportSkillsText
     if ([string]::IsNullOrWhiteSpace($reportSkillsText)) {
         $reportSkillsText = "（空）"
     }
 
+    $visibleDoneToday = @($doneToday | Where-Object { -not (Test-HiddenTask $_) })
     $doneLines = @()
-    if ($doneToday.Count -eq 0) {
+    if ($visibleDoneToday.Count -eq 0) {
         $doneLines += "- 今日は完了したタスクはありません。"
     }
     else {
-        foreach ($task in $doneToday) {
+        foreach ($task in $visibleDoneToday) {
             $doneLines += ("- #{0} {1} ({2})" -f $task.id, $task.title, $task.completedAt)
         }
     }
@@ -655,6 +670,37 @@ elseif ($cmd -eq "add") {
     Save-Tasks $tasks
     Write-Host "[+] Added task #$($nextId): $title (Priority: $priority, Est: $($est)m)" -ForegroundColor Green
 }
+elseif ($cmd -eq "add-hidden") {
+    if ($ArgsList.Count -eq 0) {
+        Write-Host "Usage: task add-hidden 'title' [priority: high/med/low] [est_minutes]" -ForegroundColor Red
+        exit
+    }
+
+    $title = $ArgsList[0]
+    $priority = if ($ArgsList.Count -ge 2) { $ArgsList[1] } else { "med" }
+    $est = if ($ArgsList.Count -ge 3) { [int]$ArgsList[2] } else { 30 }
+
+    $tasks = @(Get-Tasks)
+    $nextId = 1
+    if ($tasks.Count -gt 0) {
+        $maxId = ($tasks | ForEach-Object { [int]$_.id } | Measure-Object -Maximum).Maximum
+        $nextId = $maxId + 1
+    }
+
+    $newTask = [PSCustomObject]@{
+        id = $nextId
+        title = $title
+        priority = $priority
+        estMinutes = $est
+        status = "TODO"
+        createdAt = (Get-Date).ToString("yyyy-MM-dd HH:mm")
+        completedAt = $null
+        tags = @("hidden")
+    }
+    $tasks += $newTask
+    Save-Tasks $tasks
+    Write-Host "[+] Added hidden task #$($nextId): $title (Priority: $priority, Est: $($est)m)" -ForegroundColor Green
+}
 elseif ($cmd -eq "done") {
     if ($ArgsList.Count -eq 0) {
         Write-Host "Usage: task done [ID]" -ForegroundColor Red
@@ -719,9 +765,10 @@ elseif ($cmd -eq "now") {
     Write-Host "---------------------------------------------"
     $tasks = @(Get-Tasks)
     $today = Get-Date
-    $todoTasks = @($tasks | Where-Object { $_.status -eq "TODO" })
+    $visibleTasks = @($tasks | Where-Object { -not (Test-HiddenTask $_) })
+    $todoTasks = @($visibleTasks | Where-Object { $_.status -eq "TODO" })
     $doneTasks = @(
-        $tasks |
+        $visibleTasks |
         Where-Object {
             $_.status -eq "DONE" -and -not [string]::IsNullOrWhiteSpace($_.completedAt)
         } |
@@ -790,9 +837,15 @@ else {
     Write-Host "---------------------------------------------"
     $tasks = @(Get-Tasks)
     $today = Get-Date
-    $todoTasks = @($tasks | Where-Object { $_.status -eq "TODO" })
+    $visibleTasks = if ($cmd -eq "list") {
+        @($tasks)
+    }
+    else {
+        @($tasks | Where-Object { -not (Test-HiddenTask $_) })
+    }
+    $todoTasks = @($visibleTasks | Where-Object { $_.status -eq "TODO" })
     $doneTasks = @(
-        $tasks |
+        $visibleTasks |
         Where-Object {
             $_.status -eq "DONE" -and -not [string]::IsNullOrWhiteSpace($_.completedAt)
         } |
