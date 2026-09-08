@@ -333,6 +333,23 @@ function New-InitPrompt {
         $skillsText = '（空）'
     }
 
+    $today = Get-Date
+    $todayEvents = @(Get-WorkCalendarEvents -StartDate $today -Days 1)
+    $todayEventLines = @()
+    if ($todayEvents.Count -eq 0) {
+        $todayEventLines += '- 本日の予定はありません。'
+    }
+    else {
+        foreach ($event in $todayEvents) {
+            if ($event.IsAllDay) {
+                $todayEventLines += ("- {0} / {1} (終日)" -f (Get-DisplayDateText -DateValue $today), $event.Summary)
+            }
+            else {
+                $todayEventLines += ("- {0} / {1} / {2} - {3}" -f (Get-DisplayDateText -DateValue $today), $event.StartTimeStr, $event.EndTimeStr, $event.Summary)
+            }
+        }
+    }
+
     $thisMonthEvents = @(Get-ThisMonthLongEvents)
     $eventLines = @()
     if ($thisMonthEvents.Count -eq 0) {
@@ -371,6 +388,13 @@ function New-InitPrompt {
         '',
         '【現在の業務コンテキスト / skills.txt】',
         $skillsText,
+        '',
+        '【本日の予定】'
+    )
+
+    $lines += $todayEventLines
+
+    $lines += @(
         '',
         '【今月の 3時間以上の予定】'
     )
