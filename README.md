@@ -54,8 +54,8 @@ Windows 起動時に自動でカレンダーを同期したい場合、`sync_sta
 # 6. タスクを削除する
 .\task.ps1 del 1
 
-# 7. 予定をGoogle Calendarへ同期（例: 30日分）
-.\task.ps1 sync 30
+# 7. 予定をGoogle Calendarへ同期（例: 90日分 / 約3ヶ月先まで）
+.\task.ps1 sync 90
 
 # 8. タスク一覧を明示的に表示
 .\task.ps1 list

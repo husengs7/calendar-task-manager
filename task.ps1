@@ -37,7 +37,7 @@ if (Test-Path $envFile) {
 $workCalendarUrl = if ($envConfig["WORK_CALENDAR_URL"]) { $envConfig["WORK_CALENDAR_URL"] } else { "" }
 $gasSyncUrl = if ($envConfig["GAS_SYNC_URL"]) { $envConfig["GAS_SYNC_URL"] } else { "" }
 $maskTitle = if ($envConfig["MASK_TITLE"] -eq "true") { $true } else { $false }
-$defaultSyncDays = if ($envConfig["SYNC_DAYS"]) { [int]$envConfig["SYNC_DAYS"] } else { 30 }
+$defaultSyncDays = if ($envConfig["SYNC_DAYS"]) { [int]$envConfig["SYNC_DAYS"] } else { 90 }
 
 if ([string]::IsNullOrWhiteSpace($workCalendarUrl)) {
     $configFile = Join-Path $scriptDir "config.json"
