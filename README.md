@@ -59,6 +59,21 @@ Windows 起動時に自動でカレンダーを同期したい場合、`sync_sta
 
 # 8. タスク一覧を明示的に表示
 .\task.ps1 list
+
+# 9. Copilot CLIを起動（startでも同じ。初期コンテキストを渡して対話開始）
+.\task.ps1 copilot
+.\task.ps1 start
+
+# 10. 従来のGemini向けプロンプトコピー
+.\task.ps1 start gemini
+
+# 11. Copilot CLIで日報を自動生成
+.\task.ps1 copilot-report
+# report copilot でも同じ動作
+.\task.ps1 report copilot
+
+# 12. 複数プロジェクトを確認してタスク化・日報生成（明示的な自動化）
+.\task.ps1 copilot-auto
 ```
 
 ### 使い方の流れ
@@ -68,12 +83,18 @@ Windows 起動時に自動でカレンダーを同期したい場合、`sync_sta
 - 予定の同期が必要なら `sync` を実行する
 
 ### AI連携について
-- `start` は AI用の初期化プロンプトを作るための補助コマンドです
+- `start` は初期コンテキストを渡したCopilot CLIの対話を開始します
+- `start gemini` は従来どおりGemini向けプロンプトをクリップボードへコピーします
 - `report` は日報用のプロンプトを作成する補助コマンドです
 - これらは「AI脳筋連携」をするための支援機能であり、通常のタスク管理自体には依存しません
+- `copilot` は同じ初期コンテキストを GitHub Copilot CLI の対話セッションへ渡します
+- `copilot-report` は日報プロンプトを Copilot CLI に渡して、そのまま日報を生成します
+- `COPILOT_AUTO_APPROVE=true` にするとツール実行確認を省略できます。タスク追加などを自動化したい場合だけ設定してください
+- `PROJECTS_ROOT` を設定すると、Copilotに確認対象のプロジェクトルートを伝えられます。破壊的操作は自動化しません
+- `copilot-auto` は `PROJECTS_ROOT` 配下を確認し、重複を避けてタスク化します。実行には上記2つの設定が必要です
 
 ```powershell
-# AI用の初期化プロンプトを作成（任意）
+# Copilotとの対話を開始
 .\task.ps1 start
 
 # 日報生成用プロンプトを作成（任意）

@@ -38,6 +38,9 @@ $workCalendarUrl = if ($envConfig["WORK_CALENDAR_URL"]) { $envConfig["WORK_CALEN
 $gasSyncUrl = if ($envConfig["GAS_SYNC_URL"]) { $envConfig["GAS_SYNC_URL"] } else { "" }
 $maskTitle = if ($envConfig["MASK_TITLE"] -eq "true") { $true } else { $false }
 $defaultSyncDays = if ($envConfig["SYNC_DAYS"]) { [int]$envConfig["SYNC_DAYS"] } else { 90 }
+$copilotCommand = if ($envConfig["COPILOT_COMMAND"]) { $envConfig["COPILOT_COMMAND"] } else { "copilot" }
+$copilotAutoApprove = $envConfig["COPILOT_AUTO_APPROVE"] -eq "true"
+$projectsRoot = if ($envConfig["PROJECTS_ROOT"]) { $envConfig["PROJECTS_ROOT"] } else { "" }
 
 if ([string]::IsNullOrWhiteSpace($workCalendarUrl)) {
     $configFile = Join-Path $scriptDir "config.json"
@@ -374,6 +377,8 @@ function New-InitPrompt {
         '4. 【最重要ルール】コマンドの実行ファイル名は、必ず「.\task.ps1」から始めてください。「task」単体や「task.ps1」だけで出力することは厳禁です。',
         '5. その月の 3時間以上の予定を必ず確認し、各イベントが業務にとって重要かどうか、準備が必要かどうかを判定してください。',
         '6. ユーザーの業務内容と優先度を踏まえて、外部影響・締切・コミュニティ価値・準備負荷を考慮し、必要なら「準備は大丈夫？」とリマインドしてください。',
+        '7. Copilot CLIから実行されている場合は、ユーザーにコマンドを表示するだけでなく、必要な非破壊操作を自分で実行し、結果を日本語で報告してください。',
+        '8. タスクの追加・完了・日報作成は、会話から意図が明確なら実行してください。削除、コミット、プッシュ、外部送信などの破壊的操作は確認してください。',
         '',
         '【利用可能なコマンド仕様一覧】',
         '・タスク追加: .\task.ps1 add "<タイトル>" [優先度: high/med/low] [見積時間(分)] (優先度デフォルト: med, 時間デフォルト: 30)',
@@ -400,6 +405,16 @@ function New-InitPrompt {
     )
 
     $lines += $eventLines
+
+    if (-not [string]::IsNullOrWhiteSpace($projectsRoot)) {
+        $lines += @(
+            '',
+            '【連携プロジェクト】',
+            ("PROJECTS_ROOT: {0}" -f $projectsRoot),
+            'このルート配下のプロジェクトに未完了の作業や変更がある場合は、必要なものだけ確認し、ユーザーに確認してから task.ps1 add でタスク化してください。',
+            '破壊的な操作、コミット、プッシュ、外部サービスへの送信は、ユーザーの明示的な指示なしに実行しないでください。'
+        )
+    }
 
     $lines += @(
         '',
@@ -562,16 +577,64 @@ function Show-CopiedPrompt {
     Write-Host "---------------------------------------------" -ForegroundColor DarkGray
 }
 
+function Invoke-CopilotPrompt {
+    param(
+        [string]$Prompt,
+        [switch]$Interactive
+    )
+
+    $command = Get-Command $copilotCommand -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        Write-Host "Copilot CLI was not found. Install it or set COPILOT_COMMAND in .env." -ForegroundColor Red
+        exit 1
+    }
+
+    $arguments = if ($Interactive) { @("-i", $Prompt) } else { @("-p", $Prompt) }
+    if ($copilotAutoApprove) {
+        $arguments += "--allow-all-tools"
+    }
+
+    & $command.Source @arguments
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Copilot CLI exited with code $LASTEXITCODE." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+
 $cmd = $Command.ToLower()
 
-if ($cmd -eq "start") {
+if ($cmd -eq "start" -and $ArgsList.Count -gt 0 -and $ArgsList[0].ToLower() -eq "gemini") {
     $prompt = New-InitPrompt
-    Show-CopiedPrompt -Title "[Task AI Init Prompt]" -Prompt $prompt
+    Show-CopiedPrompt -Title "[Task AI Init Prompt for Gemini]" -Prompt $prompt
+}
+elseif ($cmd -eq "copilot" -or $cmd -eq "start") {
+    Invoke-CopilotPrompt -Prompt (New-InitPrompt) -Interactive
+}
+elseif ($cmd -eq "copilot-report") {
+    Invoke-CopilotPrompt -Prompt (New-DailyReportPrompt)
+}
+elseif ($cmd -eq "copilot-auto") {
+    if ([string]::IsNullOrWhiteSpace($projectsRoot)) {
+        Write-Host "Set PROJECTS_ROOT in .env before using copilot-auto." -ForegroundColor Red
+        exit 1
+    }
+    if (-not $copilotAutoApprove) {
+        Write-Host "Set COPILOT_AUTO_APPROVE=true before using copilot-auto." -ForegroundColor Red
+        exit 1
+    }
+
+    $autoPrompt = (New-InitPrompt) + "`r`n`r`n【自動実行モード】`r`nPROJECTS_ROOT 配下を確認し、実際に着手すべき変更や未完了作業だけを判断して task.ps1 add でタスク化してください。重複タスクは作らず、最後に今日の優先タスクと日報を出力してください。破壊的操作、コミット、プッシュ、外部サービスへの送信は実行しないでください。"
+    Invoke-CopilotPrompt -Prompt $autoPrompt
 }
 elseif ($cmd -eq "report") {
     $today = Get-Date
-    $prompt = New-DailyReportPrompt -Today $today
-    Show-CopiedPrompt -Title "[Daily Report Prompt]" -Prompt $prompt
+    if ($ArgsList.Count -gt 0 -and $ArgsList[0].ToLower() -eq "copilot") {
+        Invoke-CopilotPrompt -Prompt (New-DailyReportPrompt -Today $today)
+    }
+    else {
+        $prompt = New-DailyReportPrompt -Today $today
+        Show-CopiedPrompt -Title "[Daily Report Prompt]" -Prompt $prompt
+    }
 }
 elseif ($cmd -eq "sync") {
     $days = $defaultSyncDays
